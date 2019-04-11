@@ -21,9 +21,9 @@ namespace LambdaUserStore
     {
         // This const is the name of the environment variable that the serverless.template will use to set
         // the name of the DynamoDB table used to store blog posts.
-        private const string TABLENAME_ENVIRONMENT_VARIABLE_LOOKUP = "BlogTable";
+        public const string TABLENAME_ENVIRONMENT_VARIABLE_LOOKUP = "BlogTable";
 
-        private const string ID_QUERY_STRING_NAME = "Id";
+        public const string ID_QUERY_STRING_NAME = "Id";
 
         /// <summary>
         ///     Default constructor that Lambda will invoke.
