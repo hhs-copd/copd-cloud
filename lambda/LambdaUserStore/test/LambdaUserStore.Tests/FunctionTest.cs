@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,6 +9,7 @@ using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
+using Amazon.Util;
 using Newtonsoft.Json;
 using Xunit;
 
@@ -15,21 +17,13 @@ namespace LambdaUserStore.Tests
 {
     public sealed class FunctionTest : IDisposable
     {
-        public FunctionTest()
-        {
-            this.TableName = "BlueprintBaseName-Blogs-" + DateTime.Now.Ticks;
-            this.DDBClient = new AmazonDynamoDBClient(RegionEndpoint.EUCentral1);
-
-            this.SetupTableAsync().Wait();
-        }
-
         public void Dispose()
         {
             this.Dispose(true);
         }
 
-        private string TableName { get; }
-        private IAmazonDynamoDB DDBClient { get; }
+        private string TableName { get; } = "BlueprintBaseName-DataEntries-" + DateTime.Now.Ticks;
+        private IAmazonDynamoDB DDBClient { get; } = new AmazonDynamoDBClient(RegionEndpoint.EUCentral1);
 
 
         /// <summary>
@@ -38,7 +32,7 @@ namespace LambdaUserStore.Tests
         /// <returns></returns>
         private async Task SetupTableAsync()
         {
-            CreateTableRequest request = new CreateTableRequest
+            var request = new CreateTableRequest
             {
                 TableName = this.TableName,
                 ProvisionedThroughput = new ProvisionedThroughput
@@ -51,35 +45,35 @@ namespace LambdaUserStore.Tests
                     new KeySchemaElement
                     {
                         KeyType = KeyType.HASH,
-                        AttributeName = Functions.ID_QUERY_STRING_NAME
+                        AttributeName = Functions.UserIdQueryStringName
                     }
                 },
                 AttributeDefinitions = new List<AttributeDefinition>
                 {
                     new AttributeDefinition
                     {
-                        AttributeName = Functions.ID_QUERY_STRING_NAME,
+                        AttributeName = Functions.UserIdQueryStringName,
                         AttributeType = ScalarAttributeType.S
                     }
                 }
             };
 
-            await this.DDBClient.CreateTableAsync(request);
+            await this.DDBClient.CreateTableAsync(request, CancellationToken.None);
 
-            DescribeTableRequest describeRequest = new DescribeTableRequest {TableName = this.TableName};
             DescribeTableResponse response;
             do
             {
-                Thread.Sleep(1000);
-                response = await this.DDBClient.DescribeTableAsync(describeRequest);
+                await Task.Delay(1000);
+                var tableRequest = new DescribeTableRequest {TableName = this.TableName};
+                response = await this.DDBClient.DescribeTableAsync(tableRequest);
             } while (response.Table.TableStatus != TableStatus.ACTIVE);
         }
 
-        private bool disposedValue; // To detect redundant calls
+        private bool _disposedValue; // To detect redundant calls
 
         private void Dispose(bool disposing)
         {
-            if (this.disposedValue) return;
+            if (this._disposedValue) return;
 
             if (disposing)
             {
@@ -87,73 +81,63 @@ namespace LambdaUserStore.Tests
                 this.DDBClient.Dispose();
             }
 
-            this.disposedValue = true;
+            this._disposedValue = true;
         }
 
         [Fact]
-        public async Task BlogTestAsync()
+        public async Task DataEntryTestAsync()
         {
-            Functions functions = new Functions(this.DDBClient, this.TableName);
+            await this.SetupTableAsync();
 
-            // Add a new blog post
-            Blog myBlog = new Blog
+            var functions = new Functions(this.DDBClient, this.TableName);
+
+            // Add a new data entry
+            var now = DateTimeOffset.Now;
+            var then = DateTimeOffset.Now - TimeSpan.FromSeconds(50);
+            IEnumerable<DataEntry> myDataEntry = new List<DataEntry>
             {
-                Name = "The awesome post",
-                Content = "Content for the awesome blog"
+                new DataEntry
+                {
+                    Humidity = 1.233f,
+                    TimeStamp = now
+                },
+                new DataEntry
+                {
+                    GyroX = 12,
+                    GyroY = -250,
+                    GyroZ = 550,
+                    TimeStamp = then
+                }
             };
 
-            APIGatewayProxyRequest request = new APIGatewayProxyRequest
+            var request = new APIGatewayProxyRequest
             {
-                Body = JsonConvert.SerializeObject(myBlog)
+                Headers = new Dictionary<string, string> {{ HeaderKeys.AuthorizationHeader, "userId" }},
+                Body = JsonConvert.SerializeObject(myDataEntry)
             };
-            TestLambdaContext context = new TestLambdaContext();
-            APIGatewayProxyResponse response = await functions.AddBlogAsync(request, context);
-            Assert.Equal(200, response.StatusCode);
+            var context = new TestLambdaContext();
+            var response = await functions.AddDataAsync(request, context);
+            Assert.Equal(201, response.StatusCode);
 
-            string blogId = response.Body;
-
-            // Confirm we can get the blog post back out
+            // Confirm we can get the data entries back out
             request = new APIGatewayProxyRequest
             {
-                PathParameters = new Dictionary<string, string> {{Functions.ID_QUERY_STRING_NAME, blogId}}
+                Headers = new Dictionary<string, string> {{ HeaderKeys.AuthorizationHeader, "userId" }},
+                PathParameters = new Dictionary<string, string> {{Functions.UserIdQueryStringName, "userId"}}
             };
             context = new TestLambdaContext();
-            response = await functions.GetBlogAsync(request, context);
+            response = await functions.GetDataEntriesAsync(request, context);
             Assert.Equal(200, response.StatusCode);
 
-            Blog readBlog = JsonConvert.DeserializeObject<Blog>(response.Body);
-            Assert.Equal(myBlog.Name, readBlog.Name);
-            Assert.Equal(myBlog.Content, readBlog.Content);
-
-            // List the blog posts
-            request = new APIGatewayProxyRequest();
-            context = new TestLambdaContext();
-            response = await functions.GetBlogsAsync(request, context);
-            Assert.Equal(200, response.StatusCode);
-
-            Blog[] blogPosts = JsonConvert.DeserializeObject<Blog[]>(response.Body);
-            Assert.Single(blogPosts);
-            Assert.Equal(myBlog.Name, blogPosts[0].Name);
-            Assert.Equal(myBlog.Content, blogPosts[0].Content);
-
-
-            // Delete the blog post
-            request = new APIGatewayProxyRequest
-            {
-                PathParameters = new Dictionary<string, string> {{Functions.ID_QUERY_STRING_NAME, blogId}}
-            };
-            context = new TestLambdaContext();
-            response = await functions.RemoveBlogAsync(request, context);
-            Assert.Equal(200, response.StatusCode);
-
-            // Make sure the post was deleted.
-            request = new APIGatewayProxyRequest
-            {
-                PathParameters = new Dictionary<string, string> {{Functions.ID_QUERY_STRING_NAME, blogId}}
-            };
-            context = new TestLambdaContext();
-            response = await functions.GetBlogAsync(request, context);
-            Assert.Equal((int) HttpStatusCode.NotFound, response.StatusCode);
+            IEnumerable<DataEntry> readDataEntries = JsonConvert.DeserializeObject<IEnumerable<DataEntry>>(response.Body);
+            Assert.Equal(readDataEntries.First().UserId, "userId");
+            Assert.Equal(readDataEntries.First().Humidity, 1.233f);
+            Assert.Equal(readDataEntries.First().TimeStamp, now);
+            Assert.Equal(readDataEntries.Last().UserId, "userId");
+            Assert.Equal(readDataEntries.Last().GyroX, 12);
+            Assert.Equal(readDataEntries.Last().GyroY, -250);
+            Assert.Equal(readDataEntries.Last().GyroZ, 550);
+            Assert.Equal(readDataEntries.Last().TimeStamp, then);
         }
     }
 }

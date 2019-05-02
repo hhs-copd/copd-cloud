@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using Amazon;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.DataModel;
+using Amazon.DynamoDBv2.DocumentModel;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
 using Amazon.Util;
@@ -21,160 +23,117 @@ namespace LambdaUserStore
     {
         // This const is the name of the environment variable that the serverless.template will use to set
         // the name of the DynamoDB table used to store blog posts.
-        public const string TABLENAME_ENVIRONMENT_VARIABLE_LOOKUP = "BlogTable";
+        private const string TableNameEnvironmentVariableLookup = "DYNAMO_TABLE_NAME";
 
-        public const string ID_QUERY_STRING_NAME = "Id";
+        // This const is the name of the column in DynamoDB
+        public const string UserIdQueryStringName = "UserId";
+
+        private readonly DynamoDBContextConfig _dynamoDbContextConfig = new DynamoDBContextConfig {Conversion = DynamoDBEntryConversion.V2};
 
         /// <summary>
         ///     Default constructor that Lambda will invoke.
         /// </summary>
+        // ReSharper disable once UnusedMember.Global
         public Functions()
         {
-            // Check to see if a table name was passed in through environment variables and if so
-            // add the table mapping.
-            string tableName = Environment.GetEnvironmentVariable(TABLENAME_ENVIRONMENT_VARIABLE_LOOKUP);
-            if (!string.IsNullOrEmpty(tableName))
-                AWSConfigsDynamoDB.Context.TypeMappings[typeof(Blog)] =
-                    new TypeMapping(typeof(Blog), tableName);
+            string tableName = Environment.GetEnvironmentVariable(TableNameEnvironmentVariableLookup);
 
-            DynamoDBContextConfig config = new DynamoDBContextConfig {Conversion = DynamoDBEntryConversion.V2};
-            this.DDBContext = new DynamoDBContext(new AmazonDynamoDBClient(), config);
+            AddTypeMappings(tableName);
+
+            this.DDBContext = new DynamoDBContext(new AmazonDynamoDBClient(), _dynamoDbContextConfig);
         }
 
         /// <summary>
         ///     Constructor used for testing passing in a preconfigured DynamoDB client.
         /// </summary>
         /// <param name="ddbClient"></param>
-        /// <param name="tableName"></param>
+        /// <param name="tableName">Name of the table in DynamoDB</param>
         public Functions(IAmazonDynamoDB ddbClient, string tableName)
         {
-            if (!string.IsNullOrEmpty(tableName))
-                AWSConfigsDynamoDB.Context.TypeMappings[typeof(Blog)] =
-                    new TypeMapping(typeof(Blog), tableName);
+            AddTypeMappings(tableName);
 
-            DynamoDBContextConfig config = new DynamoDBContextConfig {Conversion = DynamoDBEntryConversion.V2};
-            this.DDBContext = new DynamoDBContext(ddbClient, config);
+            this.DDBContext = new DynamoDBContext(ddbClient, _dynamoDbContextConfig);
+        }
+
+        private static void AddTypeMappings(string tableName)
+        {
+            if (string.IsNullOrEmpty(tableName))
+            {
+                return;
+            }
+
+            AWSConfigsDynamoDB.Context.TypeMappings[typeof(DataEntry)] = new TypeMapping(typeof(DataEntry), tableName);
         }
 
         private IDynamoDBContext DDBContext { get; }
 
         /// <summary>
-        ///     A Lambda function that returns back a page worth of blog posts.
+        ///     A Lambda function that returns back a page worth of data entries.
         /// </summary>
         /// <param name="request"></param>
-        /// <returns>The list of blogs</returns>
+        /// <param name="context"></param>
+        /// <returns>The list of data entries</returns>
         // ReSharper disable once UnusedMember.Global
-        public async Task<APIGatewayProxyResponse> GetBlogsAsync(APIGatewayProxyRequest request, ILambdaContext context)
+        public async Task<APIGatewayProxyResponse> GetDataEntriesAsync(APIGatewayProxyRequest request, ILambdaContext context)
         {
-            context.Logger.LogLine("Getting blogs");
-            AsyncSearch<Blog> search = this.DDBContext.ScanAsync<Blog>(null);
-            List<Blog> page = await search.GetNextSetAsync();
-            context.Logger.LogLine($"Found {page.Count} blogs");
+            string userId = RequestUtility.GetUserId(request.Headers);
 
-            APIGatewayProxyResponse response = new APIGatewayProxyResponse
+            context.Logger.LogLine("Getting entries");
+            try
             {
-                StatusCode = (int) HttpStatusCode.OK,
-                Body = JsonConvert.SerializeObject(page),
-                Headers = new Dictionary<string, string> {{"Content-Type", "application/json"}}
-            };
+                AsyncSearch<DataEntry> search = this.DDBContext.ScanAsync<DataEntry>(new[]
+                    {new ScanCondition("UserId", ScanOperator.Equal, userId)});
+                List<DataEntry> page = await search.GetNextSetAsync();
+                context.Logger.LogLine($"Found {page.Count} entries");
 
-            return response;
+                return RequestUtility.SuccessResponse(page);
+            }
+            catch (Exception exception)
+            {
+                context.Logger.LogLine("Something went wrong fetching data: " + exception);
+                return RequestUtility.ErrorResponse(HttpStatusCode.InternalServerError, "Something went wrong while trying to fetch the data");
+            }
         }
 
         /// <summary>
-        ///     A Lambda function that returns the blog identified by blogId
+        ///     A Lambda function that adds a data entry
         /// </summary>
         /// <param name="request"></param>
-        /// <returns></returns>
+        /// <returns>A success/failure message</returns>
         // ReSharper disable once UnusedMember.Global
-        public async Task<APIGatewayProxyResponse> GetBlogAsync(APIGatewayProxyRequest request, ILambdaContext context)
+        public async Task<APIGatewayProxyResponse> AddDataAsync(APIGatewayProxyRequest request, ILambdaContext context)
         {
-            string blogId = null;
-            if (request.PathParameters != null && request.PathParameters.ContainsKey(ID_QUERY_STRING_NAME))
-                blogId = request.PathParameters[ID_QUERY_STRING_NAME];
-            else if (request.QueryStringParameters != null &&
-                     request.QueryStringParameters.ContainsKey(ID_QUERY_STRING_NAME))
-                blogId = request.QueryStringParameters[ID_QUERY_STRING_NAME];
-
-            if (string.IsNullOrEmpty(blogId))
-                return new APIGatewayProxyResponse
-                {
-                    StatusCode = (int) HttpStatusCode.BadRequest,
-                    Body = $"Missing required parameter {ID_QUERY_STRING_NAME}"
-                };
-
-            context.Logger.LogLine($"Getting blog {blogId}");
-            Blog blog = await this.DDBContext.LoadAsync<Blog>(blogId);
-            context.Logger.LogLine($"Found blog: {blog != null}");
-
-            if (blog == null)
-                return new APIGatewayProxyResponse
-                {
-                    StatusCode = (int) HttpStatusCode.NotFound
-                };
-
-            APIGatewayProxyResponse response = new APIGatewayProxyResponse
+            string userId = RequestUtility.GetUserId(request.Headers);
+            if (userId == null)
             {
-                StatusCode = (int) HttpStatusCode.OK,
-                Body = JsonConvert.SerializeObject(blog),
-                Headers = new Dictionary<string, string> {{"Content-Type", "application/json"}}
-            };
-            return response;
-        }
+                context.Logger.LogLine($"Bad Request: User got through authentication with invalid authorization header: {request.Headers[HeaderKeys.AuthorizationHeader]}");
+                return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest, "Must supply valid user token with request");
+            }
 
-        /// <summary>
-        ///     A Lambda function that adds a blog post.
-        /// </summary>
-        /// <param name="request"></param>
-        /// <returns></returns>
-        // ReSharper disable once UnusedMember.Global
-        public async Task<APIGatewayProxyResponse> AddBlogAsync(APIGatewayProxyRequest request, ILambdaContext context)
-        {
-            Blog blog = JsonConvert.DeserializeObject<Blog>(request?.Body);
-            blog.Id = Guid.NewGuid().ToString();
-            blog.CreatedTimestamp = DateTime.Now;
+            context.Logger.LogLine($"Saving data entries for user {userId}");
 
-            context.Logger.LogLine($"Saving blog with id {blog.Id}");
-            await this.DDBContext.SaveAsync(blog);
-
-            APIGatewayProxyResponse response = new APIGatewayProxyResponse
+            try
             {
-                StatusCode = (int) HttpStatusCode.OK,
-                Body = blog.Id,
-                Headers = new Dictionary<string, string> {{"Content-Type", "text/plain"}}
-            };
-            return response;
-        }
+                IEnumerable<DataEntry> entries = JsonConvert
+                    .DeserializeObject<IEnumerable<DataEntry>>(request.Body)
+                    .Select(entry =>
+                    {
+                        entry.UserId = userId;
+                        return entry;
+                    });
 
-        /// <summary>
-        ///     A Lambda function that removes a blog post from the DynamoDB table.
-        /// </summary>
-        /// <param name="request"></param>
-        // ReSharper disable once UnusedMember.Global
-        public async Task<APIGatewayProxyResponse> RemoveBlogAsync(APIGatewayProxyRequest request,
-            ILambdaContext context)
-        {
-            string blogId = null;
-            if (request.PathParameters != null && request.PathParameters.ContainsKey(ID_QUERY_STRING_NAME))
-                blogId = request.PathParameters[ID_QUERY_STRING_NAME];
-            else if (request.QueryStringParameters != null &&
-                     request.QueryStringParameters.ContainsKey(ID_QUERY_STRING_NAME))
-                blogId = request.QueryStringParameters[ID_QUERY_STRING_NAME];
+                BatchWrite<DataEntry> batch =
+                    this.DDBContext.CreateBatchWrite<DataEntry>(new DynamoDBOperationConfig());
+                batch.AddPutItems(entries);
+                await this.DDBContext.SaveAsync(batch);
 
-            if (string.IsNullOrEmpty(blogId))
-                return new APIGatewayProxyResponse
-                {
-                    StatusCode = (int) HttpStatusCode.BadRequest,
-                    Body = $"Missing required parameter {ID_QUERY_STRING_NAME}"
-                };
-
-            context.Logger.LogLine($"Deleting blog with id {blogId}");
-            await this.DDBContext.DeleteAsync<Blog>(blogId);
-
-            return new APIGatewayProxyResponse
+                return RequestUtility.SuccessResponse("Saved data", HttpStatusCode.Created);
+            }
+            catch (Exception exception)
             {
-                StatusCode = (int) HttpStatusCode.OK
-            };
+                context.Logger.LogLine("Something went wrong storing data: " + exception);
+                return RequestUtility.ErrorResponse(HttpStatusCode.InternalServerError, "Something went wrong while trying to store the data");
+            }
         }
     }
 }
