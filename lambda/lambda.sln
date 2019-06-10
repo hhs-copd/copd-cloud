@@ -3,10 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.28307.489
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LambdaUserStore", "LambdaUserStore\src\LambdaUserStore\LambdaUserStore.csproj", "{C928A9A4-781A-4162-B36D-1C6955510570}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LambdaUserStore.Tests", "LambdaUserStore\test\LambdaUserStore.Tests\LambdaUserStore.Tests.csproj", "{061BF60B-F18F-4282-B582-9DB2A568A88E}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LambdaStoreFiles", "LambdaStoreFiles\LambdaStoreFiles.csproj", "{63E70524-62BB-481A-BF5F-7D1DFF24118F}"
 EndProject
 Global
@@ -15,14 +11,6 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{C928A9A4-781A-4162-B36D-1C6955510570}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{C928A9A4-781A-4162-B36D-1C6955510570}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{C928A9A4-781A-4162-B36D-1C6955510570}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{C928A9A4-781A-4162-B36D-1C6955510570}.Release|Any CPU.Build.0 = Release|Any CPU
-		{061BF60B-F18F-4282-B582-9DB2A568A88E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{061BF60B-F18F-4282-B582-9DB2A568A88E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{061BF60B-F18F-4282-B582-9DB2A568A88E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{061BF60B-F18F-4282-B582-9DB2A568A88E}.Release|Any CPU.Build.0 = Release|Any CPU
 		{63E70524-62BB-481A-BF5F-7D1DFF24118F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{63E70524-62BB-481A-BF5F-7D1DFF24118F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{63E70524-62BB-481A-BF5F-7D1DFF24118F}.Release|Any CPU.ActiveCfg = Release|Any CPU

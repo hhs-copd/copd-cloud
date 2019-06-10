@@ -2,34 +2,41 @@
 
 namespace LambdaStoreFiles.CSV
 {
-    public sealed class CSVParser
+    public static class CSVParser
     {
-        public ICSVItem Parse(string line)
+        public static IItem Parse(string line)
         {
-            string[] items = line.Split(',');
+            var items = line.Split(',');
             if (items.Length != 3)
             {
                 throw new ArgumentException("Invalid line");
             }
 
-            DateTimeOffset date = DateTimeOffset.Parse(items[0]);
-            string sensor = items[1];
-            string value = items[2];
+            var date = DateTimeOffset.Parse(items[0]);
+            var sensor = items[1];
+            var value = items[2];
 
             switch (sensor)
             {
                 case "Temperature":
-                    return new TemperatureCSVItem(date, sensor, value);
+                    return new TemperatureItem(date, value);
                 case "Humidity":
-                    return new HumidityCSVItem(date, sensor, value);
+                    return new HumidityItem(date, value);
                 case "Heartrate":
-                    return new HeartrateCSVItem(date, sensor, value);
+                    return new HeartrateItem(date, value);
+                case "Thorax circumference":
+                    return new ThoraxCircumferenceItem(date, value);
+                case "UV-B":
+                    return new UVBItem(date, value);
+                case "Particulate matter":
+                    return new ParticulateMatterItem(date, value);
+                
                 case "GPS":
-                    return new GPSCSVItem(date, sensor, value);
-                case "UV":
-                    return new UVCSVItem(date, sensor, value);
+                    return new GPSItem(date, value);
                 case "Movement":
-                    return new MovementCSVItem(date, sensor, value);
+                    return new MovementItem(date, value);
+                case "IMU":
+                    return new IMUItem(date, value);
                 default:
                     throw new NotImplementedException();
             }

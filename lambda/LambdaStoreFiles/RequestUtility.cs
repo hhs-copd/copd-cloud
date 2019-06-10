@@ -7,7 +7,7 @@ using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Util;
 using Newtonsoft.Json;
 
-namespace LambdaUserStore
+namespace LambdaStoreFiles
 {
     public static class RequestUtility
     {

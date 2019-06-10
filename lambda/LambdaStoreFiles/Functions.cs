@@ -1,53 +1,81 @@
 ﻿using Amazon;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
-using Amazon.S3;
-using Amazon.S3.Model;
-using LambdaUserStore;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
+using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using Amazon.DynamoDBv2;
+using Amazon.DynamoDBv2.Model;
+using LambdaStoreFiles.CSV;
 
 namespace LambdaStoreFiles
 {
     public class Functions
     {
-        private const string bucketName = "copd-storage";
-        private static readonly RegionEndpoint regionEndpoint = RegionEndpoint.EUCentral1;
-        private static readonly IAmazonS3 s3Client = new AmazonS3Client(regionEndpoint);
+        private const string TableName = "Data";
+        private static readonly RegionEndpoint RegionEndpoint = RegionEndpoint.EUCentral1;
 
         [LambdaSerializer(typeof(Amazon.Lambda.Serialization.Json.JsonSerializer))]
-        public static async Task<APIGatewayProxyResponse> PostData(APIGatewayProxyRequest request, ILambdaContext context)
+        public static async Task<APIGatewayProxyResponse> PostData(APIGatewayProxyRequest request,
+            ILambdaContext context)
         {
-            FileContent file = JsonConvert.DeserializeObject<FileContent>(request.Body);
-
-            if (string.IsNullOrEmpty(file.FileName) || string.IsNullOrEmpty(file.Content))
-            {
-                return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest, "Request doesnt contain filename or content in JSON");
-            }
-
             try
             {
-                using (AmazonS3Client client = new AmazonS3Client(regionEndpoint))
+                var file = JsonConvert.DeserializeObject<FileContent>(request.Body);
+
+                if (string.IsNullOrEmpty(file.FileName) || string.IsNullOrEmpty(file.Content))
                 {
-                    PutObjectRequest putRequest = new PutObjectRequest
-                    {
-                        BucketName = bucketName,
-                        Key = file.FileName,
-                        ContentBody = file.Content
-                    };
-                    PutObjectResponse response = await client.PutObjectAsync(putRequest);
-
-                    return RequestUtility.ErrorResponse(response.HttpStatusCode, "called service");
+                    return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest,
+                        "Request doesnt contain filename or content in JSON");
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Exception in PutS3Object:" + ex.Message);
-                return RequestUtility.ErrorResponse(HttpStatusCode.InternalServerError, "Something went wrong while trying to fetch the data");
-            }
 
+                if (!request.Headers.TryGetValue("Authorization", out var header))
+                {
+                    return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest,
+                        "No authorization header present, check request or mapping template");
+                }
+
+                var jwt = new JwtSecurityToken(header.Replace("Bearer ", string.Empty));
+
+                var itemGroups = file
+                    .Content
+                    .Split('\n')
+                    .Select(CSVParser.Parse)
+                    .GroupBy(e => e.DateTime);
+
+                using (var client = new AmazonDynamoDBClient(RegionEndpoint))
+                {
+                    foreach (var itemGroup in itemGroups)
+                    {
+                        var data = new Dictionary<string, AttributeValue>
+                        {
+                            {"Id", new AttributeValue {S = Guid.NewGuid().ToString()}},
+                            {"UserId", new AttributeValue {S = jwt.Subject}},
+                            {"Date", new AttributeValue {N = itemGroup.First().DateTime.ToUnixTimeSeconds().ToString()}}
+                        };
+
+                        foreach (var item in itemGroup)
+                        {
+                            if (!data.ContainsKey(item.Name))
+                            {
+                                data.Add(item.Name, item.Value);
+                            }
+                        }
+
+                        await client.PutItemAsync(TableName, data);
+                    }
+                }
+
+                return RequestUtility.SuccessResponse("success", HttpStatusCode.Created);
+            }
+            catch (Exception exception)
+            {
+                return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest, exception.Message);
+            }
         }
     }
 }
