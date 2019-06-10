@@ -9,7 +9,7 @@ using Newtonsoft.Json;
 
 namespace LambdaUserStore
 {
-    internal static class RequestUtility
+    public static class RequestUtility
     {
         public static string GetUserId(IDictionary<string, string> headers)
         {
