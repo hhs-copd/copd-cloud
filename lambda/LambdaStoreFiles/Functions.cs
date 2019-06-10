@@ -27,19 +27,19 @@ namespace LambdaStoreFiles
             {
                 var file = JsonConvert.DeserializeObject<FileContent>(request.Body);
 
-                if (string.IsNullOrEmpty(file.FileName) || string.IsNullOrEmpty(file.Content))
+                if (string.IsNullOrEmpty(file.Content))
                 {
                     return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest,
                         "Request doesnt contain filename or content in JSON");
                 }
 
-                if (!request.Headers.TryGetValue("Authorization", out var header))
+                if (!request.Headers.TryGetValue("Authorization", out var authorizationHeader))
                 {
                     return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest,
                         "No authorization header present, check request or mapping template");
                 }
 
-                var jwt = new JwtSecurityToken(header.Replace("Bearer ", string.Empty));
+                var jwt = new JwtSecurityToken(authorizationHeader.Replace("Bearer ", string.Empty));
 
                 var itemGroups = file
                     .Content
@@ -55,7 +55,10 @@ namespace LambdaStoreFiles
                         {
                             {"Id", new AttributeValue {S = Guid.NewGuid().ToString()}},
                             {"UserId", new AttributeValue {S = jwt.Subject}},
-                            {"Date", new AttributeValue {N = itemGroup.First().DateTime.ToUnixTimeSeconds().ToString()}}
+                            {
+                                "Date",
+                                new AttributeValue {N = itemGroup.First().DateTime.ToUnixTimeMilliseconds().ToString()}
+                            }
                         };
 
                         foreach (var item in itemGroup)
@@ -75,6 +78,70 @@ namespace LambdaStoreFiles
             catch (Exception exception)
             {
                 return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest, exception.Message);
+            }
+        }
+
+        [LambdaSerializer(typeof(Amazon.Lambda.Serialization.Json.JsonSerializer))]
+        public static async Task<APIGatewayProxyResponse> GetData(APIGatewayProxyResponse request,
+            ILambdaContext context)
+        {
+            if (!request.Headers.TryGetValue("X-Value", out var valueHeader))
+            {
+                return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest,
+                    "No X-Value header present, we need this for getting the correct graph");
+            }
+
+            if (!request.Headers.TryGetValue("Authorization", out var authorizationHeader))
+            {
+                return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest,
+                    "No authorization header present, check request or mapping template");
+            }
+
+            var jwt = new JwtSecurityToken(authorizationHeader.Replace("Bearer ", string.Empty));
+
+            using (var client = new AmazonDynamoDBClient(RegionEndpoint))
+            {
+                var scanRequest = new ScanRequest(TableName)
+                {
+                    ConsistentRead = true,
+                    FilterExpression = "attribute_exists(UserId) AND (UserId = :userId)",
+                    ExpressionAttributeNames = new Dictionary<string, string>
+                    {
+                        {"#date", "Date"},
+                        {"#user", "UserId"}
+                    },
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                    {
+                        {":userId", new AttributeValue {S = jwt.Subject}}
+                    },
+                    ProjectionExpression = "#user, #date, " + valueHeader
+                };
+
+                var result = await client.ScanAsync(scanRequest);
+
+                return RequestUtility.SuccessResponse(
+                    result
+                        .Items
+                        .Select(item =>
+                        {
+                            if (item.TryGetValue(valueHeader, out var value) && item.TryGetValue("Date", out var date))
+                            {
+                                return new Dictionary<string, string>
+                                {
+                                    {"x", date.N},
+                                    {
+                                        "y", value.N ?? value.S ?? (value.NS != null
+                                                 ? string.Join(',', value.NS)
+                                                 : value.SS != null
+                                                     ? string.Join(',', value.SS)
+                                                     : null)
+                                    },
+                                };
+                            }
+
+                            return null;
+                        })
+                        .Where(e => e != null));
             }
         }
     }
