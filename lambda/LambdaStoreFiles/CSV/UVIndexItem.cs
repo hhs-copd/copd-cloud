@@ -1,11 +1,12 @@
 ﻿using Amazon.DynamoDBv2.Model;
 using System;
+using System.Linq;
 
 namespace LambdaStoreFiles.CSV
 {
-    internal class UVBItem : IItem
+    internal class UVIndexItem : IItem
     {
-        private const string StoredName = "UVB";
+        private const string StoredName = "UVIndex";
 
         public string Name => StoredName;
 
@@ -13,12 +14,12 @@ namespace LambdaStoreFiles.CSV
 
         public AttributeValue Value { get; }
 
-        public UVBItem(DateTimeOffset date, string value)
+        public UVIndexItem(DateTimeOffset date, string value)
         {
             this.DateTime = date;
             this.Value = new AttributeValue
             {
-                N = value
+                NS = value.Split(';').ToList()
             };
         }
     }

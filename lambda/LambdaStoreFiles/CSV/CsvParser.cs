@@ -26,10 +26,20 @@ namespace LambdaStoreFiles.CSV
                     return new HeartrateItem(date, value);
                 case "Thorax circumference":
                     return new ThoraxCircumferenceItem(date, value);
-                case "UV-B":
+                case "UVA":
+                    return new UVAItem(date, value);
+                case "UVB":
                     return new UVBItem(date, value);
-                case "Particulate matter":
-                    return new ParticulateMatterItem(date, value);
+                case "UVIndex":
+                    return new UVIndexItem(date, value);
+                case "PM4p0":
+                    return new PM4p0Item(date, value);
+                case "PM1p0":
+                    return new PM1p0Item(date, value);
+                case "PM2p5":
+                    return new PM2p5Item(date, value);
+                case "PM10p0":
+                    return new PM10p0Item(date, value);
                 case "GPS":
                     return new GPSItem(date, value);
                 case "Movement":
@@ -37,7 +47,7 @@ namespace LambdaStoreFiles.CSV
                 case "IMU":
                     return new IMUItem(date, value);
                 default:
-                    throw new NotImplementedException();
+                    return new StringItem(date, sensor, value);
             }
         }
     }

@@ -3,18 +3,17 @@ using System;
 
 namespace LambdaStoreFiles.CSV
 {
-    internal class UVBItem : IItem
+    internal class StringItem : IItem
     {
-        private const string StoredName = "UVB";
-
-        public string Name => StoredName;
+        public string Name { get; }
 
         public DateTimeOffset DateTime { get; }
 
         public AttributeValue Value { get; }
 
-        public UVBItem(DateTimeOffset date, string value)
+        public StringItem(DateTimeOffset date, string sensor, string value)
         {
+            this.Name = sensor;
             this.DateTime = date;
             this.Value = new AttributeValue
             {

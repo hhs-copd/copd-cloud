@@ -3,9 +3,9 @@ using System;
 
 namespace LambdaStoreFiles.CSV
 {
-    internal class UVBItem : IItem
+    internal class UVAItem : IItem
     {
-        private const string StoredName = "UVB";
+        private const string StoredName = "UVA";
 
         public string Name => StoredName;
 
@@ -13,7 +13,7 @@ namespace LambdaStoreFiles.CSV
 
         public AttributeValue Value { get; }
 
-        public UVBItem(DateTimeOffset date, string value)
+        public UVAItem(DateTimeOffset date, string value)
         {
             this.DateTime = date;
             this.Value = new AttributeValue
