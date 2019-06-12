@@ -2,7 +2,7 @@
 
 namespace LambdaStoreFiles.CSV
 {
-    public static class CSVParser
+    public static class CsvParser
     {
         public static IItem Parse(string line)
         {
@@ -12,9 +12,9 @@ namespace LambdaStoreFiles.CSV
                 throw new ArgumentException("Invalid line");
             }
 
-            var date = DateTimeOffset.Parse(items[0]);
-            var sensor = items[1];
-            var value = items[2];
+            var date = DateTimeOffset.Parse(items[0].Trim());
+            var sensor = items[1].Trim();
+            var value = items[2].Trim();
 
             switch (sensor)
             {
@@ -30,7 +30,6 @@ namespace LambdaStoreFiles.CSV
                     return new UVBItem(date, value);
                 case "Particulate matter":
                     return new ParticulateMatterItem(date, value);
-                
                 case "GPS":
                     return new GPSItem(date, value);
                 case "Movement":

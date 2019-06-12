@@ -18,6 +18,7 @@ namespace LambdaStoreFiles
     {
         private const string TableName = "Data";
         private static readonly RegionEndpoint RegionEndpoint = RegionEndpoint.EUCentral1;
+        private static readonly string[] LineEndings = new[] { "\r\n", "\r", "\n" };
 
         [LambdaSerializer(typeof(Amazon.Lambda.Serialization.Json.JsonSerializer))]
         public static async Task<APIGatewayProxyResponse> PostData(APIGatewayProxyRequest request,
@@ -43,8 +44,19 @@ namespace LambdaStoreFiles
 
                 var itemGroups = file
                     .Content
-                    .Split('\n')
-                    .Select(CSVParser.Parse)
+                    .Split(LineEndings, StringSplitOptions.None)
+                    .Select(line =>
+                    {
+                        try
+                        {
+                            return CsvParser.Parse(line);
+                        }
+                        catch
+                        {
+                            return null;
+                        }
+                    })
+                    .Where(item => item != null)
                     .GroupBy(e => e.DateTime);
 
                 using (var client = new AmazonDynamoDBClient(RegionEndpoint))
