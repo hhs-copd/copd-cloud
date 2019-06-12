@@ -4,6 +4,8 @@ namespace LambdaStoreFiles.CSV
 {
     public static class CsvParser
     {
+        private static readonly DateTime Original = new DateTime(1970, 1, 1, 0, 0, 0, 0, System.DateTimeKind.Utc);
+
         public static IItem Parse(string line)
         {
             var items = line.Split(',');
@@ -12,7 +14,10 @@ namespace LambdaStoreFiles.CSV
                 throw new ArgumentException("Invalid line");
             }
 
-            var date = DateTimeOffset.Parse(items[0].Trim());
+
+            DateTime date = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                .AddSeconds(double.Parse(items[0].Trim()))
+                .ToLocalTime();
             var sensor = items[1].Trim();
             var value = items[2].Trim();
 

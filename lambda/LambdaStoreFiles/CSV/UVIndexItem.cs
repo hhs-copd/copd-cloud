@@ -19,7 +19,7 @@ namespace LambdaStoreFiles.CSV
             this.DateTime = date;
             this.Value = new AttributeValue
             {
-                NS = value.Split(';').ToList()
+                N = value
             };
         }
     }

@@ -1,6 +1,9 @@
 ﻿using Amazon;
+using Amazon.DynamoDBv2;
+using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
+using LambdaStoreFiles.CSV;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -8,9 +11,6 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
-using Amazon.DynamoDBv2;
-using Amazon.DynamoDBv2.Model;
-using LambdaStoreFiles.CSV;
 
 namespace LambdaStoreFiles
 {
@@ -18,7 +18,6 @@ namespace LambdaStoreFiles
     {
         private const string TableName = "Data";
         private static readonly RegionEndpoint RegionEndpoint = RegionEndpoint.EUCentral1;
-        private static readonly string[] LineEndings = new[] { "\r\n", "\r", "\n" };
 
         [LambdaSerializer(typeof(Amazon.Lambda.Serialization.Json.JsonSerializer))]
         public static async Task<APIGatewayProxyResponse> PostData(APIGatewayProxyRequest request,
@@ -26,7 +25,7 @@ namespace LambdaStoreFiles
         {
             try
             {
-                var file = JsonConvert.DeserializeObject<FileContent>(request.Body);
+                FileContent file = JsonConvert.DeserializeObject<FileContent>(request.Body);
 
                 if (string.IsNullOrEmpty(file.Content))
                 {
@@ -34,17 +33,17 @@ namespace LambdaStoreFiles
                         "Request doesnt contain filename or content in JSON");
                 }
 
-                if (!request.Headers.TryGetValue("Authorization", out var authorizationHeader))
+                if (!request.Headers.TryGetValue("Authorization", out string authorizationHeader))
                 {
                     return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest,
                         "No authorization header present, check request or mapping template");
                 }
 
-                var jwt = new JwtSecurityToken(authorizationHeader.Replace("Bearer ", string.Empty));
+                JwtSecurityToken jwt = new JwtSecurityToken(authorizationHeader.Replace("Bearer ", string.Empty));
 
-                var itemGroups = file
-                    .Content
-                    .Split(LineEndings, StringSplitOptions.None)
+                string[] lines = file.Content.Split("\n");
+
+                IEnumerable<IGrouping<DateTimeOffset, IItem>> itemGroups = lines
                     .Select(line =>
                     {
                         try
@@ -59,11 +58,11 @@ namespace LambdaStoreFiles
                     .Where(item => item != null)
                     .GroupBy(e => e.DateTime);
 
-                using (var client = new AmazonDynamoDBClient(RegionEndpoint))
+                using (AmazonDynamoDBClient client = new AmazonDynamoDBClient(RegionEndpoint))
                 {
-                    foreach (var itemGroup in itemGroups)
+                    foreach (IGrouping<DateTimeOffset, IItem> itemGroup in itemGroups)
                     {
-                        var data = new Dictionary<string, AttributeValue>
+                        Dictionary<string, AttributeValue> data = new Dictionary<string, AttributeValue>
                         {
                             {"Id", new AttributeValue {S = Guid.NewGuid().ToString()}},
                             {"UserId", new AttributeValue {S = jwt.Subject}},
@@ -73,13 +72,15 @@ namespace LambdaStoreFiles
                             }
                         };
 
-                        foreach (var item in itemGroup)
+                        foreach (IItem item in itemGroup)
                         {
                             if (!data.ContainsKey(item.Name))
                             {
                                 data.Add(item.Name, item.Value);
                             }
                         }
+
+                        Console.Write("Putting " + data.Count + " items \t");
 
                         await client.PutItemAsync(TableName, data);
                     }
@@ -97,23 +98,23 @@ namespace LambdaStoreFiles
         public static async Task<APIGatewayProxyResponse> GetData(APIGatewayProxyResponse request,
             ILambdaContext context)
         {
-            if (!request.Headers.TryGetValue("X-Value", out var valueHeader))
+            if (!request.Headers.TryGetValue("X-Value", out string valueHeader))
             {
                 return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest,
                     "No X-Value header present, we need this for getting the correct graph");
             }
 
-            if (!request.Headers.TryGetValue("Authorization", out var authorizationHeader))
+            if (!request.Headers.TryGetValue("Authorization", out string authorizationHeader))
             {
                 return RequestUtility.ErrorResponse(HttpStatusCode.BadRequest,
                     "No authorization header present, check request or mapping template");
             }
 
-            var jwt = new JwtSecurityToken(authorizationHeader.Replace("Bearer ", string.Empty));
+            JwtSecurityToken jwt = new JwtSecurityToken(authorizationHeader.Replace("Bearer ", string.Empty));
 
-            using (var client = new AmazonDynamoDBClient(RegionEndpoint))
+            using (AmazonDynamoDBClient client = new AmazonDynamoDBClient(RegionEndpoint))
             {
-                var scanRequest = new ScanRequest(TableName)
+                ScanRequest scanRequest = new ScanRequest(TableName)
                 {
                     ConsistentRead = true,
                     FilterExpression = "attribute_exists(UserId) AND (UserId = :userId)",
@@ -129,14 +130,14 @@ namespace LambdaStoreFiles
                     ProjectionExpression = "#user, #date, " + valueHeader
                 };
 
-                var result = await client.ScanAsync(scanRequest);
+                ScanResponse result = await client.ScanAsync(scanRequest);
 
                 return RequestUtility.SuccessResponse(
                     result
                         .Items
                         .Select(item =>
                         {
-                            if (item.TryGetValue(valueHeader, out var value) && item.TryGetValue("Date", out var date))
+                            if (item.TryGetValue(valueHeader, out AttributeValue value) && item.TryGetValue("Date", out AttributeValue date))
                             {
                                 return new Dictionary<string, string>
                                 {
